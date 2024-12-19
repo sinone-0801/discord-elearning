@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-learningテスト</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #f9f9f9;
+        }
+
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+            text-align: center;
+        }
+
+        h2 {
+            color: #2980b9;
+            margin-top: 30px;
+        }
+
+        p {
+            margin-bottom: 20px;
+        }
+
+        ul {
+            padding-left: 20px;
+        }
+
+        li {
+            margin-bottom: 10px;
+        }
+
+        .content {
+            background-color: #ecf0f1;
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .completed {
+            background-color: #e0ffe0;
+        }
+
+        .back-button {
+            display: block;
+            width: 200px;
+            margin: 20px auto;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            text-align: center;
+            text-decoration: none;
+            font-size: 16px;
+            border-radius: 5px;
+        }
+
+        .back-button:hover {
+            background-color: #45a049;
+        }
+
+        .example {
+            background-color: #e8f6f3;
+            border-left: 4px solid #1abc9c;
+            padding: 10px;
+            margin-top: 10px;
+        }
+
+        .tip {
+            background-color: #fff5e6;
+            border-left: 4px solid #f39c12;
+            padding: 10px;
+            margin-top: 10px;
+        }
+
+        #submit-button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        #submit-button:hover {
+            background-color: #45a049;
+        }
+
+        #result {
+            margin-top: 20px;
+            font-weight: bold;
+        }
+
+        .passed {
+            color: green;
+        }
+
+        .failed {
+            color: red;
+        }
+
+    </style>
+</head>
+<body>
+    <h1>E-learningテスト</h1>
+    <div id="quiz-container"></div>
+    <button id="submit-button" style="display: none;">回答を送信</button>
+    <div id="result"></div>
+    <!-- 戻るボタンを追加 -->
+    <a href="/elearning/index.html" id="backButton" class="back-button">トップページに戻る</a>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const userId = urlParams.get('id') || '1'; // URLパラメータからユーザーIDを取得
+        const quizNumber = urlParams.get('quiz') || '001';
+        const guildId = urlParams.get('guildId') || 'defaultGuildId'; // URLパラメータからguildIdを取得
+        const channelId = urlParams.get('channelId') || 'defaultChannelId'; // URLパラメータからchannelIdを取得
+
+        // 戻るボタンのhrefを動的に設定
+        document.getElementById('backButton').href = `index.html?id=${userId}&guildId=${guildId}&channelId=${channelId}`;
+
+        // サーバーからテストデータを取得
+        fetch(`/elearning/api/quiz/${quizNumber}`)
+            .then(response => response.json())
+            .then(quizData => {
+                renderQuiz(quizData);
+                document.getElementById('submit-button').style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Error loading quiz data:', error);
+                document.getElementById('quiz-container').innerHTML = '<p>クイズデータの読み込みに失敗しました。</p>';
+            });
+
+        function renderQuiz(quizData) {
+            const quizContainer = document.getElementById('quiz-container');
+            quizData.questions.forEach((question, index) => {
+                const questionElement = document.createElement('div');
+                questionElement.classList.add('question');
+                questionElement.innerHTML = `
+                    <h2>問題 ${index + 1}</h2>
+                    <p>${question.question}</p>
+                    <ul class="options">
+                        ${question.options.map((option, optionIndex) => `
+                            <li>
+                                <label>
+                                    <input type="checkbox" name="question${index}" value="${optionIndex}">
+                                    ${option}
+                                </label>
+                            </li>
+                        `).join('')}
+                    </ul>
+                `;
+                quizContainer.appendChild(questionElement);
+            });
+
+            document.getElementById('submit-button').addEventListener('click', () => submitAnswers(quizData));
+        }
+
+        async function submitAnswers(quizData) {
+            const answers = quizData.questions.map((_, index) => {
+                return Array.from(document.querySelectorAll(`input[name="question${index}"]:checked`))
+                    .map(input => parseInt(input.value));
+            });
+
+            try {
+                const response = await fetch(`/elearning/api/quiz/${quizNumber}/submit`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        userId: userId,
+                        answers: answers
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to submit answers');
+                }
+
+                const result = await response.json();
+                displayResult(result);
+            } catch (error) {
+                console.error('Error submitting answers:', error);
+                document.getElementById('result').textContent = 'テスト結果の送信に失敗しました。';
+            }
+        }
+
+        async function displayResult(result) {
+            const resultElement = document.getElementById('result');
+            resultElement.textContent = `あなたのスコア: ${result.score}/${result.totalQuestions}`;
+            if (result.passed) {
+                resultElement.classList.add('passed');
+                resultElement.textContent += ' - 合格！';
+                
+                // Discord通知を送信
+                try {
+                    const notifyResponse = await fetch('/elearning/api/notify-discord', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                            body: JSON.stringify({ 
+                            userId: userId,
+                            quizNumber: quizNumber,
+                            guildId: guildId,   // guildIdを送信
+                            channelId: channelId // channelIdを送信
+                        }),
+                    });
+                    
+                    if (!notifyResponse.ok) {
+                        const errorData = await notifyResponse.json();
+                        throw new Error(`Failed to send Discord notification: ${errorData.error}`);
+                    }
+                    
+                    console.log('Discord notification sent successfully');
+                } catch (error) {
+                    console.error('Error sending Discord notification:', error);
+                    resultElement.textContent += ` - Discord通知の送信に失敗しました: ${error.message}`;
+                }
+            } else {
+                resultElement.classList.add('failed');
+                resultElement.textContent += ' - 不合格';
+            }
+        }
+    </script>
+</body>
+</html>

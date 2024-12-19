@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>オンライン塾講師向け E-learning</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .disabled {
+            color: #999;
+            pointer-events: none;
+        }
+        .completed {
+            color: green;
+        }
+        #userInfo {
+            margin-bottom: 20px;
+        }
+        .error {
+            color: red;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="userInfo">
+        <h2>ユーザー情報</h2>
+        <p>ユーザーID: <span id="userId"></span></p>
+        <p>名前: <span id="userName"></span></p>
+    </div>
+
+    <h1>オンライン塾講師向け E-learning</h1>
+    <p>以下のリンクから学習を始めてください：</p>
+    <ul id="courseLinks">
+        <!-- <li><a href="#" id="learningLink">学習資料：変数と定数</a> <span id="learningStatus"></span></li>
+        <li><a href="#" id="testLink" class="disabled">テスト：読み込み中...</a> <span id="testStatus"></span></li> -->
+    </ul>
+
+    <div id="errorMessage" class="error"></div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const discordId = urlParams.get('id');
+        const guildId = urlParams.get('guildId');
+        const channelId = urlParams.get('channelId');
+        const userIdSpan = document.getElementById('userId');
+        const userNameSpan = document.getElementById('userName');
+        const courseLinks = document.getElementById('courseLinks');
+        const errorMessageDiv = document.getElementById('errorMessage');
+        
+        async function fetchData() {
+            try {
+                const [learningMaterialsResponse, userDataResponse] = await Promise.all([
+                    fetch('/elearning/api/learning-materials'),
+                    fetch(`/elearning/api/user?id=${discordId}`)
+                ]);
+
+                if (!learningMaterialsResponse.ok || !userDataResponse.ok) {
+                    throw new Error(`Error fetching data: ${learningMaterialsResponse.statusText || userDataResponse.statusText}`);
+                }
+
+                const learningMaterials = await learningMaterialsResponse.json();
+                const userData = await userDataResponse.json();
+
+                console.log('Fetched learning materials:', learningMaterials);
+                console.log('Fetched user data:', userData);
+
+                return { learningMaterials, userData };
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                errorMessageDiv.textContent = `エラー: データの読み込みに失敗しました。`;
+                throw error;
+            }
+        }
+    
+        async function renderContent(learningMaterials, userData) {
+            courseLinks.innerHTML = '';
+
+            for (const item of learningMaterials) {
+                if (item && item.file && item.title) {
+                    const index = item.file.split(".")[0];
+                    console.log(`Processing item: ${item.file}, index: ${index}`);
+
+                    // 学習資料リンク
+                    const learningLi = document.createElement('li');
+                    const learningA = document.createElement('a');
+                    learningA.href = `learning/${item.file}?id=${discordId}&guildId=${guildId}&channelId=${channelId}`;
+                    learningA.textContent = item.title;
+                    learningLi.appendChild(learningA);
+
+                    const learningStatusSpan = document.createElement('span');
+                    learningStatusSpan.id = `learningStatus_${index}`;
+                    learningStatusSpan.classList.add('learningStatus');
+                    const learningKey = `learning${index}`;
+                    if (userData[learningKey] && userData[learningKey] !== '0') {
+                        learningStatusSpan.textContent = `(完了: ${userData[learningKey]})`;
+                        learningStatusSpan.classList.add('completed');
+                        console.log(`Learning ${index} completed: ${userData[learningKey]}`);
+                    } else {
+                        console.log(`Learning ${index} not completed`);
+                    }
+                    learningLi.appendChild(learningStatusSpan);
+
+                    courseLinks.appendChild(learningLi);
+
+                    // テストリンク
+                    const quizResponse = await fetch(`/elearning/api/quiz/${index}`);
+                    if (quizResponse.ok) {
+                        const quizData = await quizResponse.json();
+                        const testLi = document.createElement('li');
+                        const testA = document.createElement('a');
+                        testA.id = `test${index}`;
+                        testA.href = `test.html?id=${discordId}&guildId=${guildId}&channelId=${channelId}&quiz=${index}`;
+                        testA.textContent = `${quizData.title}（テスト）`;
+
+                        if (!userData[learningKey] || userData[learningKey] === '0') {
+                            testA.classList.add('disabled');
+                            console.log(`Test ${index} disabled`);
+                        } else {
+                            console.log(`Test ${index} enabled`);
+                        }
+
+                        testLi.appendChild(testA);
+
+                        const testStatusSpan = document.createElement('span');
+                        testStatusSpan.id = `status_test${index}`;
+                        testStatusSpan.classList.add('testStatus');
+                        const testKey = `test${index}`;
+                        if (userData[testKey] && userData[testKey] !== '0') {
+                            testStatusSpan.textContent = `(完了: ${userData[testKey]})`;
+                            testStatusSpan.classList.add('completed');
+                            console.log(`Test ${index} completed: ${userData[testKey]}`);
+                        } else {
+                            console.log(`Test ${index} not completed`);
+                        }
+                        testLi.appendChild(testStatusSpan);
+
+                        courseLinks.appendChild(testLi);
+                    }
+                } else {
+                    console.error('Invalid item data:', item);
+                }
+            }
+
+            // ユーザー情報の表示
+            userIdSpan.textContent = userData.user_id;
+            userNameSpan.textContent = userData.name;
+        }
+    
+        async function initializePage() {
+            if (discordId) {
+                try {
+                    const { learningMaterials, userData } = await fetchData();
+                    await renderContent(learningMaterials, userData);
+                } catch (error) {
+                    console.error('Error initializing page:', error);
+                }
+            } else {
+                errorMessageDiv.textContent = 'Discord IDが提供されていません。Discord botから生成されたURLを使用してアクセスしてください。';
+            }
+        }
+    
+        // 定期的にユーザーデータを更新
+        setInterval(async () => {
+            if (discordId) {
+                try {
+                    const response = await fetch(`/elearning/api/user?id=${discordId}`);
+                    if (response.ok) {
+                        const userData = await response.json();
+                        console.log('Updated user data:', userData);
+                        updateUserStatus(userData);
+                    }
+                } catch (error) {
+                    console.error('Error updating user data:', error);
+                }
+            }
+        }, 10000); // 10秒ごとに更新
+    
+        function updateUserStatus(userData) {
+            Object.keys(userData).forEach(key => {
+                if (key.startsWith('learning') || key.startsWith('test')) {
+                    const statusSpan = document.getElementById(`status_${key}`);
+                    if (statusSpan) {
+                        if (userData[key] && userData[key] !== '0') {
+                            statusSpan.textContent = `(完了: ${userData[key]})`;
+                            statusSpan.classList.add('completed');
+                            console.log(`${key} updated to completed: ${userData[key]}`);
+                        } else {
+                            statusSpan.textContent = '';
+                            statusSpan.classList.remove('completed');
+                            console.log(`${key} updated to not completed`);
+                        }
+                    }
+    
+                    // テストの有効化/無効化の更新
+                    if (key.startsWith('learning')) {
+                        const testIndex = key.replace('learning', '');
+                        const testLink = document.getElementById(`test${testIndex}`);
+                        if (testLink) {
+                            if (userData[key] && userData[key] !== '0') {
+                                testLink.classList.remove('disabled');
+                                console.log(`Test ${testIndex} enabled`);
+                            } else {
+                                testLink.classList.add('disabled');
+                                console.log(`Test ${testIndex} disabled`);
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // ページがロードされたら初期化
+        document.addEventListener('DOMContentLoaded', initializePage);
+    </script>
+</body>
+</html>
